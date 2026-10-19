@@ -11,6 +11,7 @@ Commandes :
   python alerts.py load liste.csv        remplace la liste par ce CSV (colonnes de watchlist), puis chiffre
   python alerts.py apercu                ouvre le tableau de bord sur ce Mac (rien n'est envoyé ni publié)
   python alerts.py telegram-id           affiche l'identifiant du groupe Telegram (après y avoir écrit un message)
+  python alerts.py test-telegram -- -123 envoie un message de test dans le groupe -123
 
 Variables d'environnement (secrets GitHub en production) :
   DASHBOARD_PASSWORD    mot de passe (demandé au clavier s'il est absent)
@@ -493,6 +494,10 @@ def cmd_telegram_id() -> None:
     if not token:
         import getpass
         token = getpass.getpass("Jeton du bot Telegram : ").strip()
+    me = requests.get(f"https://api.telegram.org/bot{token}/getMe", timeout=30).json()
+    if not me.get("ok"):
+        sys.exit(f"Jeton refusé par Telegram ({me.get('description', 'erreur inconnue')}) : vérifier le jeton donné par @BotFather")
+    print(f"Jeton OK : bot @{me['result']['username']}")
     updates = requests.get(f"https://api.telegram.org/bot{token}/getUpdates", timeout=30).json().get("result", [])
     seen = {}
     for u in updates:
@@ -501,9 +506,18 @@ def cmd_telegram_id() -> None:
         if chat:
             seen[chat["id"]] = chat.get("title") or chat.get("username") or chat.get("first_name")
     if not seen:
-        print("Aucun message reçu : écris un message dans le groupe (après y avoir ajouté le bot), puis relance.")
+        print(f"Aucun message reçu. Dans le groupe (où le bot doit être membre), envoie : /start@{me['result']['username']}  puis relance.")
     for cid, name in seen.items():
         print(f"{cid}\t{name}")
+
+
+def cmd_test_telegram(chat_id: str) -> None:
+    """Envoie un message de test dans le groupe pour vérifier jeton et identifiant."""
+    if not os.environ.get("TELEGRAM_BOT_TOKEN"):
+        import getpass
+        os.environ["TELEGRAM_BOT_TOKEN"] = getpass.getpass("Jeton du bot Telegram : ").strip()
+    os.environ["TELEGRAM_CHAT_ID"] = chat_id
+    send_telegram(f"✅ <b>{load_config()['nom_portefeuille']}</b> : le bot est bien configuré, les alertes arriveront ici.")
 
 
 def main() -> None:
@@ -514,10 +528,12 @@ def main() -> None:
     for name in ("import", "export", "load"):
         sub.add_parser(name).add_argument("csv")
     sub.add_parser("telegram-id")
+    sub.add_parser("test-telegram").add_argument("chat_id")
     sub.add_parser("apercu").add_argument("--port", type=int, default=8000)
     a = p.parse_args()
     {"run": lambda: cmd_run(a.dry_run), "import": lambda: cmd_import(a.csv), "export": lambda: cmd_export(a.csv),
-     "load": lambda: cmd_load(a.csv), "telegram-id": cmd_telegram_id, "apercu": lambda: cmd_apercu(a.port)}[a.cmd]()
+     "load": lambda: cmd_load(a.csv), "telegram-id": cmd_telegram_id,
+     "test-telegram": lambda: cmd_test_telegram(a.chat_id), "apercu": lambda: cmd_apercu(a.port)}[a.cmd]()
 
 
 if __name__ == "__main__":
