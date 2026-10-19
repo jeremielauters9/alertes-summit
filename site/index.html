@@ -54,6 +54,7 @@ tbody tr:hover { background: var(--surface-2); }
 .chip.buy { color: var(--buy); background: var(--buy-bg); }
 .chip.sell { color: var(--sell); background: var(--sell-bg); }
 .chip.near { color: var(--near); background: var(--near-bg); }
+.chip.watch { color: var(--accent); background: var(--surface-2); }
 .sub { display: block; font-size: 11px; color: var(--muted); }
 .empty { padding: 40px; text-align: center; color: var(--muted); }
 #lock { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
@@ -120,11 +121,11 @@ tbody tr:hover { background: var(--surface-2); }
   </div>
 
   <div id="editMode" hidden>
-    <div class="notice" id="editNotice">Ajoute, retire ou modifie les titres. Les limites sont dans la devise de cotation du titre. Tickers au format Bloomberg (<code>AAPL US</code>, <code>700 HK</code>) ou Yahoo (<code>AAPL</code>, <code>0700.HK</code>).</div>
+    <div class="notice" id="editNotice">Ajoute, retire ou modifie les titres. Portefeuille : <b>stop-loss</b> (vendre si le cours descend) et <b>take profit</b> (vendre si le cours monte). Watchlist : <b>*limite d'achat</b> dans la première colonne. Limites dans la devise de cotation du titre. Tickers au format Bloomberg (<code>AAPL US</code>, <code>700 HK</code>) ou Yahoo (<code>AAPL</code>, <code>0700.HK</code>).</div>
     <div class="card">
       <div class="scroll">
         <table class="edit">
-          <thead><tr><th>Liste</th><th>Ticker</th><th>Nom</th><th>Dernier</th><th>Limite achat</th><th>Limite vente</th><th>Note</th><th></th></tr></thead>
+          <thead><tr><th>Liste</th><th>Ticker</th><th>Nom</th><th>Dernier</th><th>Stop-loss / achat*</th><th>Take profit</th><th>Note</th><th></th></tr></thead>
           <tbody id="editBody"></tbody>
         </table>
       </div>
@@ -187,14 +188,15 @@ const pct = (x) => x == null ? '' : (x > 0 ? '+' : '') + nf(x, 1) + ' %';
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
 function status(t) {
-  if (t.limite_achat != null && t.plus_bas != null && t.plus_bas <= t.limite_achat) return ['buy', 'Achat touché'];
-  if (t.liste === 'portefeuille' && t.limite_vente != null && t.plus_haut != null && t.plus_haut >= t.limite_vente) return ['sell', 'Vente touchée'];
+  const pf = t.liste === 'portefeuille';
+  if (t.limite_basse != null && t.plus_bas != null && t.plus_bas <= t.limite_basse) return pf ? ['sell', 'Stop-loss touché'] : ['watch', 'Achat touché'];
+  if (pf && t.limite_haute != null && t.plus_haut != null && t.plus_haut >= t.limite_haute) return ['buy', 'Take profit touché'];
   const prox = proximity(t);
   if (prox != null && prox < NEAR_PCT) return ['near', 'Proche'];
   return null;
 }
 function proximity(t) {
-  const v = [t.ecart_achat, t.ecart_vente].filter((x) => x != null).map(Math.abs);
+  const v = [t.ecart_bas, t.ecart_haut].filter((x) => x != null).map(Math.abs);
   return v.length ? Math.min(...v) : null;
 }
 function today() { return new Date().toISOString().slice(0, 10); }
@@ -208,7 +210,7 @@ function render() {
   $('#kTitres').textContent = T.length;
   $('#kJour').textContent = DATA.alertes.filter((a) => a.horodatage.slice(0, 10) === today()).length;
   $('#kProches').textContent = T.filter((t) => { const p = proximity(t); return p != null && p < NEAR_PCT; }).length;
-  $('#kSans').textContent = T.filter((t) => t.limite_achat == null && t.limite_vente == null).length;
+  $('#kSans').textContent = T.filter((t) => t.limite_basse == null && t.limite_haute == null).length;
   // Bouton visible seulement en aperçu local, ou sur un appareil où le jeton GitHub est enregistré
   // (première fois : ouvrir la page avec ?admin à la fin de l'adresse).
   if (new URLSearchParams(location.search).has('admin') && DATA.repo) ghToken();
@@ -224,7 +226,7 @@ function renderTable() {
   const rows = DATA.titres.filter((t) => t.liste === tab && match(t));
   const val = {
     titre: (t) => t.ticker, dernier: (t) => t.dernier, variation: (t) => t.variation,
-    achat: (t) => t.ecart_achat == null ? null : Math.abs(t.ecart_achat), vente: (t) => t.ecart_vente == null ? null : Math.abs(t.ecart_vente),
+    bas: (t) => t.ecart_bas == null ? null : Math.abs(t.ecart_bas), haut: (t) => t.ecart_haut == null ? null : Math.abs(t.ecart_haut),
     proximite: (t) => { const s = status(t); return s && s[0] !== 'near' ? -1 : proximity(t); },
   }[sortKey];
   rows.sort((a, b) => {
@@ -233,8 +235,8 @@ function renderTable() {
     return (x < y ? -1 : x > y ? 1 : 0) * sortDir;
   });
   const isPf = tab === 'portefeuille';
-  const cols = [['titre', 'Titre'], ['dernier', 'Dernier'], ['variation', 'Var. jour'], ['', 'Plus bas / haut'], ['achat', 'Limite achat']]
-    .concat(isPf ? [['vente', 'Limite vente']] : []).concat([['proximite', 'Statut']]);
+  const cols = [['titre', 'Titre'], ['dernier', 'Dernier'], ['variation', 'Var. jour'], ['', 'Plus bas / haut'], ['bas', isPf ? 'Stop-loss' : 'Limite achat']]
+    .concat(isPf ? [['haut', 'Take profit']] : []).concat([['proximite', 'Statut']]);
   const head = cols.map(([k, l], i) => `<th data-k="${k}" class="${i === 3 ? 'hide-m' : ''}">${l}${k === sortKey ? (sortDir > 0 ? ' ↑' : ' ↓') : ''}</th>`).join('');
   const body = rows.map((t) => {
     const s = status(t);
@@ -244,8 +246,8 @@ function renderTable() {
       <td>${price(t.dernier)} <span class="muted small">${esc(t.devise)}</span>${t.date && t.date !== today() ? `<span class="sub">${t.date}</span>` : ''}</td>
       <td class="${t.variation > 0 ? 'pos' : t.variation < 0 ? 'neg' : ''}">${pct(t.variation) || '–'}</td>
       <td class="hide-m muted">${price(t.plus_bas)} / ${price(t.plus_haut)}</td>
-      <td>${lim(t.limite_achat, t.ecart_achat)}</td>
-      ${isPf ? `<td>${lim(t.limite_vente, t.ecart_vente)}</td>` : ''}
+      <td>${lim(t.limite_basse, t.ecart_bas)}</td>
+      ${isPf ? `<td>${lim(t.limite_haute, t.ecart_haut)}</td>` : ''}
       <td>${s ? `<span class="chip ${s[0]}">${s[1]}</span>` : '<span class="muted">–</span>'}</td>
     </tr>`;
   }).join('');
@@ -261,8 +263,11 @@ function renderTable() {
 function renderAlerts(list) {
   if (!list.length) { $('#tableBox').innerHTML = '<div class="empty">Aucune alerte pour le moment.</div>'; return; }
   const body = list.map((a) => {
-    const [cls, label] = a.sens === 'vente' ? ['sell', 'Vente'] : ['buy', a.liste === 'watchlist' ? 'Achat (watchlist)' : 'Achat'];
-    const ext = a.sens === 'vente' ? a.plus_haut : a.plus_bas;
+    const [cls, label] = {
+      stop_loss: ['sell', 'Stop-loss'], take_profit: ['buy', 'Take profit'], achat: ['watch', 'Achat (watchlist)'],
+      vente: ['buy', 'Vente'],  // alertes enregistrées avant le passage stop-loss / take profit
+    }[a.sens] || ['watch', a.sens];
+    const ext = ['take_profit', 'vente'].includes(a.sens) ? a.plus_haut : a.plus_bas;
     return `<tr>
       <td>${new Date(a.horodatage).toLocaleString('fr-CH', { dateStyle: 'short', timeStyle: 'short' })}</td>
       <td style="text-align:left"><span class="chip ${cls}">${label}</span></td>
@@ -282,7 +287,7 @@ $('#tabs').addEventListener('click', (e) => {
 $('#search').addEventListener('input', renderTable);
 
 // ------------------------------------------------------------------ édition (commit GitHub)
-const FIELDS = ['liste', 'ticker', 'yahoo', 'nom', 'limite_achat', 'limite_vente', 'note'];
+const FIELDS = ['liste', 'ticker', 'yahoo', 'nom', 'limite_basse', 'limite_haute', 'note'];
 let csvSha = null;
 // Aperçu local (python alerts.py apercu) : la liste est lue et enregistrée sur le Mac, pas sur GitHub.
 const LOCAL = () => !DATA.repo && ['localhost', '127.0.0.1'].includes(location.hostname);
@@ -330,15 +335,16 @@ function editRow(r = {}) {
     <td><input data-f="ticker" placeholder="AAPL US"></td>
     <td><input data-f="nom" placeholder="Nom"></td>
     <td class="muted cours"></td>
-    <td><input data-f="limite_achat" class="num" inputmode="decimal" placeholder="–"></td>
-    <td><input data-f="limite_vente" class="num" inputmode="decimal" placeholder="–"></td>
+    <td><input data-f="limite_basse" class="num" inputmode="decimal" placeholder="–"></td>
+    <td><input data-f="limite_haute" class="num" inputmode="decimal" placeholder="–"></td>
     <td><input data-f="note" placeholder=""></td>
     <td><button class="btn ghost" title="Retirer">✕</button></td>`;
+  r = { ...r, limite_basse: r.limite_basse ?? r.limite_achat, limite_haute: r.limite_haute ?? r.limite_vente };  // anciens noms de colonnes
   tr.querySelectorAll('[data-f]').forEach((el) => { el.value = r[el.dataset.f] || (el.dataset.f === 'liste' ? 'portefeuille' : ''); });
   tr.dataset.yahoo = r.yahoo || ''; tr.dataset.ticker0 = r.ticker || '';
   const t = DATA.titres.find((x) => x.ticker === r.ticker);
   if (t) tr.querySelector('.cours').textContent = price(t.dernier) + ' ' + (t.devise || '');
-  const syncSell = () => { const s = tr.querySelector('[data-f=limite_vente]'); const w = tr.querySelector('[data-f=liste]').value === 'watchlist'; s.disabled = w; if (w) s.value = ''; };
+  const syncSell = () => { const s = tr.querySelector('[data-f=limite_haute]'); const w = tr.querySelector('[data-f=liste]').value === 'watchlist'; s.disabled = w; if (w) s.value = ''; };
   tr.querySelector('[data-f=liste]').addEventListener('change', syncSell); syncSell();
   tr.querySelector('button').addEventListener('click', () => tr.remove());
   $('#editBody').appendChild(tr);
@@ -369,7 +375,7 @@ $('#saveEdit').addEventListener('click', async () => {
   $('#editBody').querySelectorAll('tr').forEach((tr) => {
     const r = {}; tr.querySelectorAll('[data-f]').forEach((el) => { r[el.dataset.f] = el.value.trim(); });
     if (!r.ticker) return;
-    ['limite_achat', 'limite_vente'].forEach((k) => {
+    ['limite_basse', 'limite_haute'].forEach((k) => {
       r[k] = r[k].replace(/['\s]/g, '').replace(',', '.');
       if (r[k] && isNaN(Number(r[k]))) bad.push(r.ticker);
     });

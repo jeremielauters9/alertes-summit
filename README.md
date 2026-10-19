@@ -1,10 +1,10 @@
 # Alertes portefeuille
 
-Surveille une liste de titres cotés, envoie un message **Telegram** dès qu'une limite d'achat ou de vente est touchée, et publie un **tableau de bord protégé par mot de passe**.
+Surveille une liste de titres cotés, envoie un message **Telegram** dès qu'un stop-loss, un take profit ou un niveau d'achat est touché, et publie un **tableau de bord protégé par mot de passe**.
 
-- **Portefeuille** : titres détenus, avec une limite d'achat et/ou de vente.
-- **Watchlist** : titres à surveiller à la baisse (limite d'achat uniquement).
-- Une limite est *touchée* si le **plus bas du jour** est ≤ la limite d'achat, ou si le **plus haut du jour** est ≥ la limite de vente. Un passage entre deux contrôles est donc détecté aussi.
+- **Portefeuille** : titres détenus, avec un **stop-loss** (alerte de vente si le cours descend) et/ou un **take profit** (alerte de vente si le cours monte).
+- **Watchlist** : titres à acheter, avec une **limite d'achat** (alerte si le cours descend à ce niveau).
+- Un niveau est *touché* si le **plus bas du jour** est ≤ le stop-loss ou la limite d'achat, ou si le **plus haut du jour** est ≥ le take profit. Un passage entre deux contrôles est donc détecté aussi.
 - Un message par titre, par sens et par séance. Si le cours reste dans la zone, un rappel est envoyé à la séance suivante.
 - Contrôle **toutes les 10 minutes**, du lundi au vendredi, de 03h à 24h (heure suisse). GitHub peut décaler un passage de quelques minutes.
 - Cours Yahoo Finance (gratuit), différés de 0 à 15 min selon la place de cotation.
@@ -28,7 +28,7 @@ Surveille une liste de titres cotés, envoie un message **Telegram** dès qu'une
 
 | Fichier | Rôle |
 |---|---|
-| `watchlist.enc.json` | La liste suivie, chiffrée. Modifiable depuis le tableau de bord (bouton *Modifier la liste*). |
+| `watchlist.enc.json` | La liste suivie, chiffrée (colonnes `liste, ticker, yahoo, nom, limite_basse, limite_haute, note` : limite basse = stop-loss ou achat, limite haute = take profit). Modifiable depuis le tableau de bord (bouton *Modifier la liste*). |
 | `config.json` | Nom du portefeuille (affiché dans les messages) et fuseau horaire. |
 | `alerts.py` | Le robot : cours → détection → Telegram → tableau de bord chiffré. |
 | `site/index.html` | Le tableau de bord. |

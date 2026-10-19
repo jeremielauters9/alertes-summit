@@ -42,7 +42,8 @@ WATCHLIST_FILE = ROOT / "watchlist.enc.json"
 STATE_FILE = ROOT / "state" / "state.enc.json"
 DATA_FILE = ROOT / "site" / "data.enc.json"
 
-FIELDS = ["liste", "ticker", "yahoo", "nom", "limite_achat", "limite_vente", "note"]
+# limite_basse : stop-loss (portefeuille) ou niveau d'achat (watchlist) · limite_haute : take profit (portefeuille)
+FIELDS = ["liste", "ticker", "yahoo", "nom", "limite_basse", "limite_haute", "note"]
 LISTS = ("portefeuille", "watchlist")
 MAX_ALERTS_KEPT = 1000
 PBKDF2_ITERATIONS = 250_000
@@ -165,8 +166,9 @@ def parse_watchlist(text: str) -> list[dict]:
             "ticker": r["ticker"].strip(),
             "yahoo": (r.get("yahoo") or "").strip() or bloomberg_to_yahoo(r["ticker"]),
             "nom": (r.get("nom") or "").strip(),
-            "limite_achat": parse_limit(r.get("limite_achat")),
-            "limite_vente": parse_limit(r.get("limite_vente")),
+            # anciens noms de colonnes acceptés (limite_achat / limite_vente)
+            "limite_basse": parse_limit(r.get("limite_basse", r.get("limite_achat"))),
+            "limite_haute": parse_limit(r.get("limite_haute", r.get("limite_vente"))) if liste != "watchlist" else None,
             "note": (r.get("note") or "").strip(),
         })
     return rows
@@ -258,17 +260,21 @@ def fmt(x: float | None) -> str:
 
 
 def detect(rows: list[dict], quotes: dict, state: dict) -> list[dict]:
-    """Une limite est « touchée » si le plus bas (achat) ou le plus haut (vente) du jour l'a atteinte.
-    Une alerte par titre / sens / niveau / séance : pas de doublon d'un passage à l'autre."""
+    """Portefeuille : stop-loss si le plus bas du jour ≤ limite basse, take profit si le plus haut ≥ limite haute.
+    Watchlist : achat si le plus bas du jour ≤ limite basse.
+    Une alerte par titre / type / niveau / séance : pas de doublon d'un passage à l'autre."""
     nouvelles = []
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     for r in rows:
         q = quotes.get(r["yahoo"])
         if not q:
             continue
-        checks = [("achat", r["limite_achat"], r["limite_achat"] is not None and q["plus_bas"] <= r["limite_achat"])]
-        if r["liste"] == "portefeuille":
-            checks.append(("vente", r["limite_vente"], r["limite_vente"] is not None and q["plus_haut"] >= r["limite_vente"]))
+        bas, haut = r["limite_basse"], r["limite_haute"]
+        if r["liste"] == "watchlist":
+            checks = [("achat", bas, bas is not None and q["plus_bas"] <= bas)]
+        else:
+            checks = [("stop_loss", bas, bas is not None and q["plus_bas"] <= bas),
+                      ("take_profit", haut, haut is not None and q["plus_haut"] >= haut)]
         for sens, limite, touche in checks:
             if not touche:
                 continue
@@ -290,17 +296,17 @@ def build_message(alerts: list[dict], cfg: dict) -> str:
     from html import escape
     from zoneinfo import ZoneInfo
 
+    entete = {
+        "stop_loss": ("🔴 <b>STOP-LOSS</b> touché", "plus bas", "plus_bas"),
+        "take_profit": ("🟢 <b>TAKE PROFIT</b> touché", "plus haut", "plus_haut"),
+        "achat": ("👀 <b>ACHAT</b> (watchlist) touché", "plus bas", "plus_bas"),
+    }
     heure = datetime.now(ZoneInfo(cfg["fuseau"])).strftime("%d.%m %H:%M")
     lines = [f"🔔 <b>{escape(cfg['nom_portefeuille'])}</b> · {heure}", ""]
     for a in alerts:
-        if a["sens"] == "vente":
-            tete, extreme = "🔴 <b>VENTE</b> touchée", f"plus haut {fmt(a['plus_haut'])}"
-        elif a["liste"] == "watchlist":
-            tete, extreme = "👀 <b>ACHAT</b> (watchlist) touché", f"plus bas {fmt(a['plus_bas'])}"
-        else:
-            tete, extreme = "🟢 <b>ACHAT</b> touché", f"plus bas {fmt(a['plus_bas'])}"
+        tete, label, champ = entete[a["sens"]]
         lines.append(f"{tete} · {escape(a['ticker'])} – {escape(a['nom'])}")
-        lines.append(f"   limite {fmt(a['limite'])} {a['devise']} · {extreme} · dernier {fmt(a['dernier'])}")
+        lines.append(f"   limite {fmt(a['limite'])} {a['devise']} · {label} {fmt(a[champ])} · dernier {fmt(a['dernier'])}")
     if os.environ.get("DASHBOARD_URL"):
         lines += ["", escape(os.environ["DASHBOARD_URL"])]
     return "\n".join(lines)
@@ -351,7 +357,7 @@ def build_dashboard(rows: list[dict], quotes: dict, state: dict, cfg: dict) -> d
         out.append({
             **r, **q, "devise": state["devises"].get(r["yahoo"], ""),
             "variation": None if not (dernier and q.get("cloture_veille")) else (dernier / q["cloture_veille"] - 1) * 100,
-            "ecart_achat": pct(r["limite_achat"]), "ecart_vente": pct(r["limite_vente"]) if r["liste"] == "portefeuille" else None,
+            "ecart_bas": pct(r["limite_basse"]), "ecart_haut": pct(r["limite_haute"]),
         })
     return {
         "nom_portefeuille": cfg["nom_portefeuille"],
@@ -411,8 +417,8 @@ def cmd_import(path: str) -> None:
             old = existing.pop(ticker, {})
             rows.append({
                 "liste": "portefeuille", "ticker": ticker, "yahoo": old.get("yahoo") or bloomberg_to_yahoo(ticker),
-                "nom": r.get("name", "").strip(), "limite_achat": old.get("limite_achat"),
-                "limite_vente": old.get("limite_vente"), "note": old.get("note", ""),
+                "nom": r.get("name", "").strip(), "limite_basse": old.get("limite_basse"),
+                "limite_haute": old.get("limite_haute"), "note": old.get("note", ""),
             })
     rows += [r for r in existing.values() if r["liste"] == "watchlist"]  # la watchlist est conservée
     save_watchlist(rows)
