@@ -5,3 +5,4 @@ __pycache__/
 # jamais de liste en clair sur GitHub
 *.csv
 site/data.enc.json
+*.xlsx
