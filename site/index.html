@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Alertes portefeuille</title>
+<style>
+:root {
+  --bg: #f6f7f9; --surface: #ffffff; --surface-2: #f0f2f5; --border: #e3e6eb;
+  --text: #14171c; --muted: #6b7280; --accent: #2457d6; --accent-ink: #fff;
+  --buy: #0f8a4f; --buy-bg: #e3f5ec; --sell: #c0352b; --sell-bg: #fbe7e5;
+  --near: #a86200; --near-bg: #fdf1dc; --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1115; --surface: #171a20; --surface-2: #1f232b; --border: #2a2f39;
+    --text: #e8eaee; --muted: #9aa1ad; --accent: #6d95ff; --accent-ink: #0f1115;
+    --buy: #4cc98a; --buy-bg: #12301f; --sell: #ff7a6e; --sell-bg: #3a1714; --near: #f2b45a; --near-bg: #3a2a10;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 24px 16px 60px; }
+header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+h1 { font-size: 22px; margin: 0 0 2px; letter-spacing: -.01em; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 20px; }
+.kpi { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
+.kpi b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.bar { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 12px; }
+.tabs { display: inline-flex; background: var(--surface-2); border-radius: 9px; padding: 3px; }
+.tabs button { border: 0; background: transparent; color: var(--muted); padding: 7px 14px; border-radius: 7px; font: inherit; font-weight: 500; cursor: pointer; }
+.tabs button.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+input, select { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; }
+input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.btn { font: inherit; font-weight: 500; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 8px; padding: 7px 14px; cursor: pointer; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.ghost { border-color: transparent; background: transparent; color: var(--muted); }
+.btn:disabled { opacity: .5; cursor: default; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th, td { padding: 10px 12px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--border); }
+th { font-size: 12px; font-weight: 500; color: var(--muted); background: var(--surface); position: sticky; top: 0; cursor: pointer; user-select: none; }
+th:first-child, td:first-child { text-align: left; }
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr:hover { background: var(--surface-2); }
+.tk { font-weight: 600; }
+.nm { color: var(--muted); font-size: 12px; max-width: 240px; overflow: hidden; text-overflow: ellipsis; display: block; }
+.pos { color: var(--buy); } .neg { color: var(--sell); }
+.chip { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 99px; }
+.chip.buy { color: var(--buy); background: var(--buy-bg); }
+.chip.sell { color: var(--sell); background: var(--sell-bg); }
+.chip.near { color: var(--near); background: var(--near-bg); }
+.sub { display: block; font-size: 11px; color: var(--muted); }
+.empty { padding: 40px; text-align: center; color: var(--muted); }
+#lock { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
+#lock form { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 28px; width: 100%; max-width: 360px; display: grid; gap: 12px; }
+#lock h1 { font-size: 18px; }
+.err { color: var(--sell); font-size: 13px; min-height: 18px; }
+.edit td { padding: 6px 8px; }
+.edit th { text-align: left; }
+.edit input, .edit select { width: 100%; min-width: 80px; padding: 5px 8px; }
+.edit select { min-width: 125px; }
+.edit input.num { text-align: right; width: 110px; }
+.edit-actions { display: flex; gap: 8px; justify-content: flex-end; padding: 12px; border-top: 1px solid var(--border); flex-wrap: wrap; }
+.notice { padding: 10px 14px; border-radius: 8px; background: var(--surface-2); margin-bottom: 12px; font-size: 13px; }
+[hidden] { display: none !important; }
+@media (max-width: 720px) {
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  th, td { padding: 8px; }
+  .hide-m { display: none; }
+}
+</style>
+</head>
+<body>
+
+<div id="lock">
+  <form id="lockForm">
+    <h1>Alertes portefeuille</h1>
+    <p class="muted small" style="margin:0">Cette page est protégée. Entre le mot de passe pour voir les cours et les alertes.</p>
+    <input id="pw" type="password" placeholder="Mot de passe" autocomplete="current-password" autofocus>
+    <label class="small muted"><input type="checkbox" id="remember"> Se souvenir sur cet appareil</label>
+    <button class="btn primary" type="submit">Ouvrir</button>
+    <div class="err" id="lockErr"></div>
+  </form>
+</div>
+
+<div class="wrap" id="app" hidden>
+  <header>
+    <div>
+      <h1 id="title"></h1>
+      <div class="muted small" id="updated"></div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn" id="editBtn">Modifier la liste</button>
+      <button class="btn ghost" id="logout">Verrouiller</button>
+    </div>
+  </header>
+
+  <div class="kpis">
+    <div class="kpi"><span class="muted small">Titres suivis</span><b id="kTitres">–</b></div>
+    <div class="kpi"><span class="muted small">Alertes aujourd'hui</span><b id="kJour">–</b></div>
+    <div class="kpi"><span class="muted small">Proches d'une limite (&lt; 3 %)</span><b id="kProches">–</b></div>
+    <div class="kpi"><span class="muted small">Sans limite définie</span><b id="kSans">–</b></div>
+  </div>
+
+  <div id="viewMode">
+    <div class="bar">
+      <div class="tabs" id="tabs">
+        <button data-tab="portefeuille" class="on">Portefeuille</button>
+        <button data-tab="watchlist">Watchlist</button>
+        <button data-tab="alertes">Alertes</button>
+      </div>
+      <input id="search" type="search" placeholder="Rechercher un titre…" style="min-width:220px">
+    </div>
+    <div class="card"><div class="scroll" id="tableBox"></div></div>
+  </div>
+
+  <div id="editMode" hidden>
+    <div class="notice" id="editNotice">Ajoute, retire ou modifie les titres. Les limites sont dans la devise de cotation du titre. Tickers au format Bloomberg (<code>AAPL US</code>, <code>700 HK</code>) ou Yahoo (<code>AAPL</code>, <code>0700.HK</code>).</div>
+    <div class="card">
+      <div class="scroll">
+        <table class="edit">
+          <thead><tr><th>Liste</th><th>Ticker</th><th>Nom</th><th>Dernier</th><th>Limite achat</th><th>Limite vente</th><th>Note</th><th></th></tr></thead>
+          <tbody id="editBody"></tbody>
+        </table>
+      </div>
+      <div class="edit-actions">
+        <button class="btn" id="addRow">+ Ajouter un titre</button>
+        <span style="flex:1"></span>
+        <button class="btn ghost" id="cancelEdit">Annuler</button>
+        <button class="btn primary" id="saveEdit">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const NEAR_PCT = 3;
+const $ = (s) => document.querySelector(s);
+const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+let DATA = null, PASSWORD = null, tab = 'portefeuille', sortKey = 'proximite', sortDir = 1;
+
+function store(kind, key, val) { try { val === undefined ? kind.removeItem(key) : kind.setItem(key, val); } catch (e) {} }
+function load(kind, key) { try { return kind.getItem(key); } catch (e) { return null; } }
+
+async function deriveKey(password, salt, iterations, usage) {
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, [usage]);
+}
+async function decryptText(blob, password) {
+  const key = await deriveKey(password, b64(blob.salt), blob.iter, 'decrypt');
+  return new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64(blob.iv) }, key, b64(blob.data)));
+}
+async function encryptText(text, password) {
+  const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12)), iter = 250000;
+  const key = await deriveKey(password, salt, iter, 'encrypt');
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(text)));
+  const enc = (u) => btoa(Array.from(u, (c) => String.fromCharCode(c)).join(''));
+  return { v: 1, iter, salt: enc(salt), iv: enc(iv), data: enc(ct) };
+}
+
+async function unlock(password, remember) {
+  const res = await fetch('data.enc.json?t=' + Date.now(), { cache: 'no-store' });
+  if (!res.ok) throw new Error('Données introuvables (le premier passage du robot a-t-il eu lieu ?)');
+  try { DATA = JSON.parse(await decryptText(await res.json(), password)); PASSWORD = password; }
+  catch (e) { throw new Error('Mot de passe incorrect'); }
+  store(sessionStorage, 'pw', password);
+  if (remember) store(localStorage, 'pw', password);
+  $('#lock').hidden = true; $('#app').hidden = false;
+  render();
+}
+
+$('#lockForm').addEventListener('submit', async (e) => {
+  e.preventDefault(); $('#lockErr').textContent = '';
+  try { await unlock($('#pw').value, $('#remember').checked); } catch (err) { $('#lockErr').textContent = err.message; }
+});
+$('#logout').addEventListener('click', () => { store(sessionStorage, 'pw'); store(localStorage, 'pw'); location.reload(); });
+
+// ------------------------------------------------------------------ affichage
+const nf = (x, d) => x == null ? '–' : x.toLocaleString('fr-CH', { minimumFractionDigits: d, maximumFractionDigits: d });
+const price = (x) => x == null ? '–' : nf(x, Math.abs(x) < 10 ? 3 : 2);
+const pct = (x) => x == null ? '' : (x > 0 ? '+' : '') + nf(x, 1) + ' %';
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
+function status(t) {
+  if (t.limite_achat != null && t.plus_bas != null && t.plus_bas <= t.limite_achat) return ['buy', 'Achat touché'];
+  if (t.liste === 'portefeuille' && t.limite_vente != null && t.plus_haut != null && t.plus_haut >= t.limite_vente) return ['sell', 'Vente touchée'];
+  const prox = proximity(t);
+  if (prox != null && prox < NEAR_PCT) return ['near', 'Proche'];
+  return null;
+}
+function proximity(t) {
+  const v = [t.ecart_achat, t.ecart_vente].filter((x) => x != null).map(Math.abs);
+  return v.length ? Math.min(...v) : null;
+}
+function today() { return new Date().toISOString().slice(0, 10); }
+
+function render() {
+  $('#title').textContent = DATA.nom_portefeuille;
+  document.title = DATA.nom_portefeuille;
+  $('#updated').textContent = 'Cours mis à jour le ' + new Date(DATA.maj).toLocaleString('fr-CH', { dateStyle: 'medium', timeStyle: 'short' })
+    + ' · cours Yahoo Finance, différés de 0 à 15 min selon la place';
+  const T = DATA.titres;
+  $('#kTitres').textContent = T.length;
+  $('#kJour').textContent = DATA.alertes.filter((a) => a.horodatage.slice(0, 10) === today()).length;
+  $('#kProches').textContent = T.filter((t) => { const p = proximity(t); return p != null && p < NEAR_PCT; }).length;
+  $('#kSans').textContent = T.filter((t) => t.limite_achat == null && t.limite_vente == null).length;
+  // Bouton visible seulement en aperçu local, ou sur un appareil où le jeton GitHub est enregistré
+  // (première fois : ouvrir la page avec ?admin à la fin de l'adresse).
+  if (new URLSearchParams(location.search).has('admin') && DATA.repo) ghToken();
+  $('#editBtn').hidden = !(LOCAL() || (DATA.repo && load(localStorage, 'gh_token')));
+  renderTable();
+}
+
+function renderTable() {
+  const q = $('#search').value.trim().toLowerCase();
+  const match = (o) => !q || (o.ticker + ' ' + o.nom).toLowerCase().includes(q);
+  if (tab === 'alertes') return renderAlerts(DATA.alertes.filter(match));
+
+  const rows = DATA.titres.filter((t) => t.liste === tab && match(t));
+  const val = {
+    titre: (t) => t.ticker, dernier: (t) => t.dernier, variation: (t) => t.variation,
+    achat: (t) => t.ecart_achat == null ? null : Math.abs(t.ecart_achat), vente: (t) => t.ecart_vente == null ? null : Math.abs(t.ecart_vente),
+    proximite: (t) => { const s = status(t); return s && s[0] !== 'near' ? -1 : proximity(t); },
+  }[sortKey];
+  rows.sort((a, b) => {
+    const x = val(a), y = val(b);
+    if (x == null) return 1; if (y == null) return -1;
+    return (x < y ? -1 : x > y ? 1 : 0) * sortDir;
+  });
+  const isPf = tab === 'portefeuille';
+  const cols = [['titre', 'Titre'], ['dernier', 'Dernier'], ['variation', 'Var. jour'], ['', 'Plus bas / haut'], ['achat', 'Limite achat']]
+    .concat(isPf ? [['vente', 'Limite vente']] : []).concat([['proximite', 'Statut']]);
+  const head = cols.map(([k, l], i) => `<th data-k="${k}" class="${i === 3 ? 'hide-m' : ''}">${l}${k === sortKey ? (sortDir > 0 ? ' ↑' : ' ↓') : ''}</th>`).join('');
+  const body = rows.map((t) => {
+    const s = status(t);
+    const lim = (v, e) => v == null ? '<span class="muted">–</span>' : `${price(v)}<span class="sub">${pct(e)}</span>`;
+    return `<tr>
+      <td><span class="tk">${esc(t.ticker)}</span><span class="nm" title="${esc(t.nom)}">${esc(t.nom)}${t.note ? ' · ' + esc(t.note) : ''}</span></td>
+      <td>${price(t.dernier)} <span class="muted small">${esc(t.devise)}</span>${t.date && t.date !== today() ? `<span class="sub">${t.date}</span>` : ''}</td>
+      <td class="${t.variation > 0 ? 'pos' : t.variation < 0 ? 'neg' : ''}">${pct(t.variation) || '–'}</td>
+      <td class="hide-m muted">${price(t.plus_bas)} / ${price(t.plus_haut)}</td>
+      <td>${lim(t.limite_achat, t.ecart_achat)}</td>
+      ${isPf ? `<td>${lim(t.limite_vente, t.ecart_vente)}</td>` : ''}
+      <td>${s ? `<span class="chip ${s[0]}">${s[1]}</span>` : '<span class="muted">–</span>'}</td>
+    </tr>`;
+  }).join('');
+  $('#tableBox').innerHTML = rows.length
+    ? `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`
+    : `<div class="empty">${tab === 'watchlist' ? 'Watchlist vide. Clique sur « Modifier la liste » pour ajouter un titre à surveiller à la baisse.' : 'Aucun titre.'}</div>`;
+  $('#tableBox').querySelectorAll('th[data-k]').forEach((th) => th.addEventListener('click', () => {
+    const k = th.dataset.k; if (!k) return;
+    sortDir = sortKey === k ? -sortDir : 1; sortKey = k; renderTable();
+  }));
+}
+
+function renderAlerts(list) {
+  if (!list.length) { $('#tableBox').innerHTML = '<div class="empty">Aucune alerte pour le moment.</div>'; return; }
+  const body = list.map((a) => {
+    const [cls, label] = a.sens === 'vente' ? ['sell', 'Vente'] : ['buy', a.liste === 'watchlist' ? 'Achat (watchlist)' : 'Achat'];
+    const ext = a.sens === 'vente' ? a.plus_haut : a.plus_bas;
+    return `<tr>
+      <td>${new Date(a.horodatage).toLocaleString('fr-CH', { dateStyle: 'short', timeStyle: 'short' })}</td>
+      <td style="text-align:left"><span class="chip ${cls}">${label}</span></td>
+      <td style="text-align:left"><span class="tk">${esc(a.ticker)}</span><span class="nm">${esc(a.nom)}</span></td>
+      <td>${price(a.limite)} <span class="muted small">${esc(a.devise)}</span></td>
+      <td class="hide-m">${price(ext)}</td>
+      <td>${price(a.dernier)}</td>
+    </tr>`;
+  }).join('');
+  $('#tableBox').innerHTML = `<table><thead><tr><th>Date</th><th style="text-align:left">Signal</th><th style="text-align:left">Titre</th><th>Limite</th><th class="hide-m">Plus bas / haut</th><th>Dernier</th></tr></thead><tbody>${body}</tbody></table>`;
+}
+
+$('#tabs').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  tab = b.dataset.tab; $('#tabs').querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b)); renderTable();
+});
+$('#search').addEventListener('input', renderTable);
+
+// ------------------------------------------------------------------ édition (commit GitHub)
+const FIELDS = ['liste', 'ticker', 'yahoo', 'nom', 'limite_achat', 'limite_vente', 'note'];
+let csvSha = null;
+// Aperçu local (python alerts.py apercu) : la liste est lue et enregistrée sur le Mac, pas sur GitHub.
+const LOCAL = () => !DATA.repo && ['localhost', '127.0.0.1'].includes(location.hostname);
+
+function parseCSV(text) {
+  const rows = []; let row = [], f = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) { if (c === '"' && text[i + 1] === '"') { f += '"'; i++; } else if (c === '"') q = false; else f += c; }
+    else if (c === '"') q = true;
+    else if (c === ',') { row.push(f); f = ''; }
+    else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; row.push(f); rows.push(row); row = []; f = ''; }
+    else f += c;
+  }
+  if (f || row.length) { row.push(f); rows.push(row); }
+  const [h, ...rest] = rows;
+  return rest.filter((r) => r.some((x) => x.trim())).map((r) => Object.fromEntries(h.map((k, i) => [k.trim(), (r[i] || '').trim()])));
+}
+const csvCell = (v) => /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+const toCSV = (rows) => [FIELDS.join(',')].concat(rows.map((r) => FIELDS.map((k) => csvCell(r[k] || '')).join(','))).join('\n') + '\n';
+const utf8b64 = (s) => btoa(String.fromCharCode(...new TextEncoder().encode(s)));
+const fromb64utf8 = (s) => new TextDecoder().decode(b64(s.replace(/\n/g, '')));
+
+function ghToken() {
+  let t = load(localStorage, 'gh_token');
+  if (!t) {
+    t = prompt('Pour modifier la liste, colle un jeton GitHub (fine-grained, accès à ce dépôt : Contents et Actions en lecture/écriture). Il reste enregistré sur cet appareil uniquement.');
+    if (t) store(localStorage, 'gh_token', t.trim());
+  }
+  return t && t.trim();
+}
+async function gh(path, opts = {}) {
+  const res = await fetch('https://api.github.com/repos/' + DATA.repo + path, {
+    ...opts, headers: { Authorization: 'Bearer ' + ghToken(), Accept: 'application/vnd.github+json', ...(opts.headers || {}) },
+  });
+  if (res.status === 401) { store(localStorage, 'gh_token'); throw new Error('Jeton GitHub refusé : réessaie avec un nouveau jeton.'); }
+  if (!res.ok && res.status !== 204) throw new Error('GitHub : ' + res.status + ' ' + (await res.text()).slice(0, 200));
+  return res.status === 204 ? null : res.json();
+}
+
+function editRow(r = {}) {
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><select data-f="liste"><option value="portefeuille">Portefeuille</option><option value="watchlist">Watchlist</option></select></td>
+    <td><input data-f="ticker" placeholder="AAPL US"></td>
+    <td><input data-f="nom" placeholder="Nom"></td>
+    <td class="muted cours"></td>
+    <td><input data-f="limite_achat" class="num" inputmode="decimal" placeholder="–"></td>
+    <td><input data-f="limite_vente" class="num" inputmode="decimal" placeholder="–"></td>
+    <td><input data-f="note" placeholder=""></td>
+    <td><button class="btn ghost" title="Retirer">✕</button></td>`;
+  tr.querySelectorAll('[data-f]').forEach((el) => { el.value = r[el.dataset.f] || (el.dataset.f === 'liste' ? 'portefeuille' : ''); });
+  tr.dataset.yahoo = r.yahoo || ''; tr.dataset.ticker0 = r.ticker || '';
+  const t = DATA.titres.find((x) => x.ticker === r.ticker);
+  if (t) tr.querySelector('.cours').textContent = price(t.dernier) + ' ' + (t.devise || '');
+  const syncSell = () => { const s = tr.querySelector('[data-f=limite_vente]'); const w = tr.querySelector('[data-f=liste]').value === 'watchlist'; s.disabled = w; if (w) s.value = ''; };
+  tr.querySelector('[data-f=liste]').addEventListener('change', syncSell); syncSell();
+  tr.querySelector('button').addEventListener('click', () => tr.remove());
+  $('#editBody').appendChild(tr);
+  return tr;
+}
+
+$('#editBtn').addEventListener('click', async () => {
+  if (!LOCAL() && !ghToken()) return;
+  try {
+    let blob;
+    if (LOCAL()) {
+      blob = await (await fetch('watchlist.enc.json', { cache: 'no-store' })).json();
+    } else {
+      const file = await gh('/contents/watchlist.enc.json');
+      csvSha = file.sha;
+      blob = JSON.parse(fromb64utf8(file.content));
+    }
+    const csv = await decryptText(blob, PASSWORD);
+    $('#editBody').innerHTML = '';
+    parseCSV(csv).forEach(editRow);
+    $('#viewMode').hidden = true; $('#editMode').hidden = false;
+  } catch (e) { alert(e.message); }
+});
+$('#addRow').addEventListener('click', () => editRow({ liste: tab === 'watchlist' ? 'watchlist' : 'portefeuille' }).querySelector('[data-f=ticker]').focus());
+$('#cancelEdit').addEventListener('click', () => { $('#editMode').hidden = true; $('#viewMode').hidden = false; });
+$('#saveEdit').addEventListener('click', async () => {
+  const rows = [], bad = [];
+  $('#editBody').querySelectorAll('tr').forEach((tr) => {
+    const r = {}; tr.querySelectorAll('[data-f]').forEach((el) => { r[el.dataset.f] = el.value.trim(); });
+    if (!r.ticker) return;
+    ['limite_achat', 'limite_vente'].forEach((k) => {
+      r[k] = r[k].replace(/['\s]/g, '').replace(',', '.');
+      if (r[k] && isNaN(Number(r[k]))) bad.push(r.ticker);
+    });
+    r.yahoo = r.ticker === tr.dataset.ticker0 ? tr.dataset.yahoo : '';  // nouveau ticker : conversion automatique
+    rows.push(r);
+  });
+  if (bad.length) return alert('Limite invalide pour : ' + bad.join(', '));
+  const btn = $('#saveEdit'); btn.disabled = true; btn.textContent = 'Enregistrement…';
+  try {
+    const blob = await encryptText(toCSV(rows), PASSWORD);
+    if (LOCAL()) {
+      const res = await fetch('watchlist.enc.json', { method: 'POST', body: JSON.stringify(blob) });
+      if (!res.ok) throw new Error('Enregistrement local impossible : ' + (await res.text()));
+      await unlock(PASSWORD);  // le serveur local a recalculé les cours avec la nouvelle liste
+      $('#editMode').hidden = true; $('#viewMode').hidden = false;
+      btn.disabled = false; btn.textContent = 'Enregistrer';
+      return;
+    }
+    await gh('/contents/watchlist.enc.json', { method: 'PUT', body: JSON.stringify({ message: 'Mise à jour de la liste', content: utf8b64(JSON.stringify(blob)), sha: csvSha }) });
+    const repo = await gh('');
+    await gh('/actions/workflows/monitor.yml/dispatches', { method: 'POST', body: JSON.stringify({ ref: repo.default_branch }) }).catch(() => {});
+    $('#editMode').hidden = true; $('#viewMode').hidden = false;
+    alert('Liste enregistrée. Le tableau de bord sera à jour d\'ici 1 à 2 minutes : recharge la page.');
+  } catch (e) { alert(e.message); }
+  btn.disabled = false; btn.textContent = 'Enregistrer';
+});
+
+// ------------------------------------------------------------------ démarrage
+const saved = load(sessionStorage, 'pw') || load(localStorage, 'pw');
+if (saved) unlock(saved).catch(() => { store(localStorage, 'pw'); store(sessionStorage, 'pw'); });
+</script>
+</body>
+</html>

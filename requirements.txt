@@ -1,0 +1,3 @@
+yfinance>=0.2.60
+cryptography>=42
+requests>=2.31

@@ -1,0 +1,76 @@
+name: Surveillance des limites
+
+on:
+  schedule:
+    # Toutes les 10 min, du lundi au vendredi, de 01h à 22h UTC (Asie + Europe + États-Unis).
+    # Minute décalée (3, 13, 23…) : GitHub est plus ponctuel en dehors des heures rondes.
+    - cron: "3-59/10 1-21 * * 1-5"
+  workflow_dispatch:              # bouton « Run workflow » + déclenché après une modification depuis le tableau de bord
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: surveillance
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -q -r requirements.txt
+
+      # L'historique chiffré passe d'un passage à l'autre par le cache : aucun enregistrement
+      # dans le dépôt au moment d'une alerte, donc rien ne trahit son heure.
+      - uses: actions/cache/restore@v4
+        with:
+          path: state/state.enc.json
+          key: state-${{ github.run_id }}
+          restore-keys: state-
+
+      - name: Cours, alertes et tableau de bord
+        env:
+          DASHBOARD_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          WHATSAPP_RECIPIENTS: ${{ secrets.WHATSAPP_RECIPIENTS }}
+          DASHBOARD_URL: ${{ vars.DASHBOARD_URL }}
+        run: python alerts.py run
+
+      - uses: actions/cache/save@v4
+        with:
+          path: state/state.enc.json
+          key: state-${{ github.run_id }}-${{ github.run_attempt }}
+
+      # Sauvegarde chiffrée hebdomadaire de l'historique (au cas où le cache serait vidé).
+      # Elle garde aussi le dépôt actif : GitHub suspend les planifications après 60 jours sans commit.
+      - name: Sauvegarde hebdomadaire
+        run: |
+          last=$(git log -1 --format=%ct -- state/state.enc.json 2>/dev/null || echo 0)
+          if [ $(( $(date +%s) - ${last:-0} )) -gt 604800 ]; then
+            git config user.name "robot-alertes"
+            git config user.email "robot-alertes@users.noreply.github.com"
+            git add state/state.enc.json
+            git commit -m "Sauvegarde hebdomadaire"
+            git pull --rebase --autostash
+            git push
+          fi
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - uses: actions/deploy-pages@v4
