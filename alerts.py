@@ -221,7 +221,8 @@ def fetch_quotes(symbols: list[str], devises: dict) -> dict[str, dict]:
     import yfinance as yf
 
     with quiet():
-        data = yf.download(symbols, period="5d", interval="1d", group_by="ticker",
+        # 1 an de cours journaliers : la dernière ligne sert aux alertes, le reste au graphique du tableau de bord
+        data = yf.download(symbols, period="1y", interval="1d", group_by="ticker",
                            progress=False, auto_adjust=False, threads=True)
     quotes = {}
     for sym in symbols:
@@ -238,6 +239,7 @@ def fetch_quotes(symbols: list[str], devises: dict) -> dict[str, dict]:
                 "plus_bas": float(last["Low"]),
                 "plus_haut": float(last["High"]),
                 "cloture_veille": prev,
+                "historique": [[d.date().isoformat(), round(float(c), 4 if c < 10 else 2)] for d, c in df["Close"].items()],
             }
         except (KeyError, IndexError):
             continue

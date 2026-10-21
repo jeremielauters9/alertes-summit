@@ -40,7 +40,7 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1
 .btn.ghost { border-color: transparent; background: transparent; color: var(--muted); }
 .btn:disabled { opacity: .5; cursor: default; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-.scroll { overflow-x: auto; }
+.scroll { overflow-x: auto; overflow-y: hidden; }
 table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 th, td { padding: 10px 12px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--border); }
 th { font-size: 12px; font-weight: 500; color: var(--muted); background: var(--surface); position: sticky; top: 0; cursor: pointer; user-select: none; }
@@ -68,6 +68,25 @@ tbody tr:hover { background: var(--surface-2); }
 .edit input.num { text-align: right; width: 110px; }
 .edit-actions { display: flex; gap: 8px; justify-content: flex-end; padding: 12px; border-top: 1px solid var(--border); flex-wrap: wrap; }
 .notice { padding: 10px 14px; border-radius: 8px; background: var(--surface-2); margin-bottom: 12px; font-size: 13px; }
+tr.row { cursor: pointer; }
+tr.row.open td { background: var(--surface-2); border-bottom-color: transparent; }
+tr.detail > td { padding: 0; text-align: left; background: var(--surface-2); white-space: normal; }
+tr.detail:hover { background: transparent; }
+.chart { position: sticky; left: 0; padding: 10px 12px 14px; box-sizing: border-box; }
+.chart-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+.ranges { display: inline-flex; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 2px; }
+.ranges button { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 12px; font-weight: 500; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+.ranges button.on { background: var(--surface-2); color: var(--text); }
+.legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+.legend i { display: inline-block; width: 14px; height: 0; border-top: 2px dashed currentColor; vertical-align: middle; margin-right: 5px; }
+.legend .dot { width: 8px; height: 8px; border: 0; border-radius: 50%; background: currentColor; }
+.chart svg { display: block; overflow: visible; }
+.chart svg text { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.chart .grid { stroke: var(--border); stroke-width: 1; }
+.chart .line { fill: none; stroke: var(--text); stroke-width: 1.6; stroke-linejoin: round; }
+.chart .area { stroke: none; fill: var(--text); opacity: .05; }
+.chart .tip-bg { fill: var(--surface); stroke: var(--border); }
+.chart .tip-tx { fill: var(--text) !important; font-weight: 600; }
 [hidden] { display: none !important; }
 @media (max-width: 720px) {
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -241,7 +260,8 @@ function renderTable() {
   const body = rows.map((t) => {
     const s = status(t);
     const lim = (v, e) => v == null ? '<span class="muted">–</span>' : `${price(v)}<span class="sub">${pct(e)}</span>`;
-    return `<tr>
+    const open = t.ticker === openTicker;
+    return `<tr class="row${open ? ' open' : ''}" data-tk="${esc(t.ticker)}" title="Afficher le graphique">
       <td><span class="tk">${esc(t.ticker)}</span><span class="nm" title="${esc(t.nom)}">${esc(t.nom)}${t.note ? ' · ' + esc(t.note) : ''}</span></td>
       <td>${price(t.dernier)} <span class="muted small">${esc(t.devise)}</span>${t.date && t.date !== today() ? `<span class="sub">${t.date}</span>` : ''}</td>
       <td class="${t.variation > 0 ? 'pos' : t.variation < 0 ? 'neg' : ''}">${pct(t.variation) || '–'}</td>
@@ -249,7 +269,7 @@ function renderTable() {
       <td>${lim(t.limite_basse, t.ecart_bas)}</td>
       ${isPf ? `<td>${lim(t.limite_haute, t.ecart_haut)}</td>` : ''}
       <td>${s ? `<span class="chip ${s[0]}">${s[1]}</span>` : '<span class="muted">–</span>'}</td>
-    </tr>`;
+    </tr>${open ? `<tr class="detail"><td colspan="${cols.length}"><div class="chart" id="chartBox"></div></td></tr>` : ''}`;
   }).join('');
   $('#tableBox').innerHTML = rows.length
     ? `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`
@@ -258,6 +278,96 @@ function renderTable() {
     const k = th.dataset.k; if (!k) return;
     sortDir = sortKey === k ? -sortDir : 1; sortKey = k; renderTable();
   }));
+  $('#tableBox').querySelectorAll('tr.row').forEach((tr) => tr.addEventListener('click', () => {
+    openTicker = openTicker === tr.dataset.tk ? null : tr.dataset.tk; renderTable();
+  }));
+  const t = rows.find((x) => x.ticker === openTicker);
+  if (t) drawChart(t);
+}
+
+// ------------------------------------------------------------------ graphique
+let openTicker = null, chartMonths = 6, resizeTimer;
+window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (DATA && openTicker) renderTable(); }, 150); });
+const LIMIT_STYLE = { stop: ['var(--sell)', 'Stop-loss'], tp: ['var(--buy)', 'Take profit'], achat: ['var(--accent)', 'Achat'] };
+const ALERT_COLOR = { stop_loss: 'var(--sell)', take_profit: 'var(--buy)', vente: 'var(--buy)', achat: 'var(--accent)' };
+
+function drawChart(t) {
+  const box = $('#chartBox');
+  const W = Math.max(280, $('#tableBox').clientWidth);
+  box.style.width = W + 'px';
+  const cutoff = new Date(); cutoff.setMonth(cutoff.getMonth() - chartMonths);
+  const from = cutoff.toISOString().slice(0, 10);
+  const pts = (t.historique || []).filter(([d]) => d >= from);
+  const limits = t.liste === 'portefeuille'
+    ? [['stop', t.limite_basse], ['tp', t.limite_haute]] : [['achat', t.limite_basse]];
+  const lims = limits.filter(([, v]) => v != null);
+  const alerts = DATA.alertes.filter((a) => a.ticker === t.ticker && pts.length && a.seance >= pts[0][0]);
+
+  const ranges = [[1, '1M'], [3, '3M'], [6, '6M'], [12, '1A']]
+    .map(([m, l]) => `<button data-m="${m}" class="${m === chartMonths ? 'on' : ''}">${l}</button>`).join('');
+  const legend = lims.map(([k, v]) => `<span style="color:${LIMIT_STYLE[k][0]}"><i></i>${LIMIT_STYLE[k][1]} ${price(v)}</span>`).join('')
+    + (alerts.length ? `<span><i class="dot" style="color:var(--muted)"></i>Alerte envoyée</span>` : '');
+  box.innerHTML = `<div class="chart-top"><div class="ranges">${ranges}</div><div class="legend">${legend}</div></div><div class="svgbox"></div>`;
+  box.querySelectorAll('.ranges button').forEach((b) => b.addEventListener('click', (e) => {
+    e.stopPropagation(); chartMonths = +b.dataset.m; drawChart(t);
+  }));
+  box.addEventListener('click', (e) => e.stopPropagation());
+  if (pts.length < 2) { box.querySelector('.svgbox').innerHTML = '<div class="empty">Historique indisponible pour ce titre.</div>'; return; }
+
+  const H = W < 500 ? 200 : 240, L = 52, R = 12, T = 10, B = 22;
+  const iw = W - 24 - L - R, ih = H - T - B;
+  const vals = pts.map((p) => p[1]).concat(lims.map(([, v]) => v));
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  const pad = (hi - lo || hi * 0.05 || 1) * 0.08; lo -= pad; hi += pad;
+  const n = pts.length;
+  const x = (i) => L + (i / (n - 1)) * iw;
+  const y = (v) => T + (1 - (v - lo) / (hi - lo)) * ih;
+  const idxOf = (d) => { const i = pts.findIndex((p) => p[0] >= d); return i < 0 ? n - 1 : i; };
+  const fd = (d, long) => { const [Y, M, D] = d.split('-'); return long ? `${D}.${M}.${Y.slice(2)}` : (chartMonths >= 6 ? `${M}.${Y.slice(2)}` : `${D}.${M}`); };
+
+  let g = '';
+  for (let k = 0; k <= 4; k++) {  // grille et prix à gauche
+    const v = lo + (hi - lo) * k / 4, yy = y(v).toFixed(1);
+    g += `<line class="grid" x1="${L}" x2="${L + iw}" y1="${yy}" y2="${yy}"/><text x="${L - 6}" y="${yy}" text-anchor="end" dominant-baseline="middle">${price(v)}</text>`;
+  }
+  const nx = W < 500 ? 3 : 5;
+  for (let k = 0; k <= nx; k++) {  // dates en bas
+    const i = Math.round(k * (n - 1) / nx);
+    g += `<text x="${x(i).toFixed(1)}" y="${H - 4}" text-anchor="${k === 0 ? 'start' : k === nx ? 'end' : 'middle'}">${fd(pts[i][0])}</text>`;
+  }
+  const path = pts.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p[1]).toFixed(1)}`).join('');
+  g += `<path class="area" d="${path}L${x(n - 1).toFixed(1)},${T + ih}L${L},${T + ih}Z"/><path class="line" d="${path}"/>`;
+  lims.forEach(([k, v]) => {
+    const yy = y(v).toFixed(1);
+    g += `<line x1="${L}" x2="${L + iw}" y1="${yy}" y2="${yy}" style="stroke:${LIMIT_STYLE[k][0]}" stroke-width="1.5" stroke-dasharray="5 4"/>`;
+  });
+  let marks = '';
+  alerts.forEach((a) => {
+    marks += `<circle cx="${x(idxOf(a.seance)).toFixed(1)}" cy="${y(a.limite).toFixed(1)}" r="4.5" style="fill:${ALERT_COLOR[a.sens] || 'var(--muted)'};stroke:var(--surface-2)" stroke-width="2"><title>${fd(a.seance, true)} · alerte ${esc(a.sens.replace('_', ' '))} à ${price(a.limite)}</title></circle>`;
+  });
+  g += `<g class="tip" visibility="hidden"><line class="grid" y1="${T}" y2="${T + ih}"/><circle r="3.5" style="fill:var(--text)"/>
+    <rect class="tip-bg" rx="4" height="20"/><text class="tip-tx" dominant-baseline="middle"></text></g>
+    <rect x="${L}" y="${T}" width="${iw}" height="${ih}" fill="transparent" class="hit"/>${marks}`;
+  const sb = box.querySelector('.svgbox');
+  sb.innerHTML = `<svg width="${W - 24}" height="${H}" viewBox="0 0 ${W - 24} ${H}" role="img" aria-label="Cours de ${esc(t.ticker)}">${g}</svg>`;
+
+  const svg = sb.querySelector('svg'), tip = svg.querySelector('.tip');
+  const show = (ev) => {
+    const r = svg.getBoundingClientRect();
+    const i = Math.max(0, Math.min(n - 1, Math.round((ev.clientX - r.left - L) / iw * (n - 1))));
+    const cx = x(i), cy = y(pts[i][1]);
+    const label = `${fd(pts[i][0], true)} · ${price(pts[i][1])} ${t.devise || ''}`;
+    tip.querySelector('line').setAttribute('x1', cx); tip.querySelector('line').setAttribute('x2', cx);
+    tip.querySelector('circle').setAttribute('cx', cx); tip.querySelector('circle').setAttribute('cy', cy);
+    const tx = tip.querySelector('text'); tx.textContent = label;
+    const tw = tx.getComputedTextLength() + 14, bx = Math.min(Math.max(cx - tw / 2, L), L + iw - tw);
+    tip.querySelector('rect').setAttribute('x', bx); tip.querySelector('rect').setAttribute('y', T); tip.querySelector('rect').setAttribute('width', tw);
+    tx.setAttribute('x', bx + 7); tx.setAttribute('y', T + 10);
+    tip.setAttribute('visibility', 'visible');
+  };
+  const hit = svg.querySelector('.hit');
+  hit.addEventListener('pointermove', show); hit.addEventListener('pointerdown', show);
+  hit.addEventListener('pointerleave', () => tip.setAttribute('visibility', 'hidden'));
 }
 
 function renderAlerts(list) {
